@@ -4,7 +4,7 @@ package Mail::Postfix::Postdrop;
 use strict;
 use warnings;
 
-our $VERSION = '0.2';
+our $VERSION = '0.3';
 
 use Carp;
 use Exporter qw(import);
@@ -70,7 +70,8 @@ sub new {
     # an object taht allready is an Email::Abstract. So this is ok:
     $message = Email::Abstract->new($message);
 
-    $overrides{Attr} ||= { rewrite_context => 'local' };
+    $overrides{Attr}      ||= { rewrite_context => 'local' };
+    $overrides{Timestamp}   = time() unless exists $overrides{Timestamp};
 
     unless ( exists $overrides{Sender} ) {
         my $sender = $message->get_header("Sender");
@@ -215,7 +216,9 @@ sub _build_rec_size {
 sub _build_rec_time {
     my ( $self, $time ) = @_;
 
-    $time = time() unless ( defined($time) );
+    $time = $self->{args}->{Timestamp} unless ( defined($time) );
+
+    return unless defined $time;
 
     my $s = sprintf( "%d", $time );
     $self->_build_rec( 'REC_TYPE_TIME', $s );
@@ -264,12 +267,23 @@ Mail::Postfix::Postdrop - Inject mails to a Postfix maildrop directory
   
   # OOish interface
 
-  my $postdrop = new Mail::Postfix::Postdrop $message;
+  my $postdrop = Mail::Postfix::Postdrop->new( $message );
 
   $postdrop->build;    # Build the content of the queue file 
   $postdrop->write;    # Write it to the maildrop queue
   $postdrop->release;  # Let pickup(8) process the queue file
   $postdrop->notify;   # Notify pickup(8) about new files (Optional)
+
+  # Or through postdrop(1)
+
+  my $postdrop = Mail::Postfix::Postdrop->new( $message, Timestamp => undef );
+  open my $fh, "|-", "/usr/sbin/postdrop"
+      or die "...";
+  print $fh $postdrop->build
+      or die "...";
+  close $fh
+      or die "...";
+
 
 =head1 DESCRIPTION
 
@@ -291,7 +305,8 @@ mail immediately. This can be used for sending mails in transactions.
 Given a message, either as a Email::Abstract object or as something 
 Email::Abstract->new() will process (like a string), this function will
 inject the mail into Postfix's maildrop queue. If not overridden sender
-and recipients will be extracted from the message.
+and recipients will be extracted from the message. (Need to be in group
+'postdrop')
 
 The following overrides is supported:
 
@@ -308,6 +323,12 @@ Default: content of To, CC, and BCc headers.
 Attributes to further posfix processing. Default:
 
   { rewrite_context => 'local' }
+
+=head3 Timestamp (integer or undef)
+
+Timestamp to stamp the queue file with (posix timestamp). The default is the
+current time. If timestamp is explicitly set to undef no timestamp will be
+created. This is needed for sending through postdrop(1).
                                              
 =head1 METHODS
 
@@ -327,12 +348,12 @@ queue content.
 =head2 write
 
 Write the content to a maildrop file. Returns a false value on failure and
-sets $! arcordingly.
+sets $! arcordingly. (Need to be in group 'postdrop')
 
 =head2 release
 
 Releases the queue file so pickup(8) will indeed pick it up next time
-it scans the maildrop queue.
+it scans the maildrop queue. (Need to be in group 'postdrop')
 
 =head2 notify
 
@@ -349,13 +370,14 @@ be generated in the mean time.
 
 =head1 BUGS AND INCONVENIENCES
 
-To use this module you script have to run in the postdrop group.
+Some of the methods needs to run as the postdrop group. If you can't run you
+script in this group you have to pipe through postdrop.
 
 Please report any bugs or feature requests to C<bug-mail-postfix-postdrop at
 rt.cpan.org>, or through the web interface at
 L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Mail-Postfix-Postdrop>.  I
 will be notified, and then you'll automatically be notified of progress on
-your bug as I make chang
+your bug as I make changes.
 
 =head1 TODO
 
